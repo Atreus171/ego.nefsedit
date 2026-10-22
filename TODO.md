@@ -7,5 +7,6 @@
 - Fix sorting by id in debug view and allow resetting sorting order (https://github.com/victorbush/ego.nefsedit/issues/11).
 - Add protection against saving over an archive in a game's directory (or always force a "Save As").
 - Add block-size padding for the primary volume (required by some PS3 archives).
+- Support rewriting items in secondary volumes (currently only the primary volume is rebuilt; new or replaced items move to volume 0).
 - Support writing split archives across multiple files
 - Allow removing files (adjust flags like IsLastSibling)
