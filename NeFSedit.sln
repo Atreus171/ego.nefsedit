@@ -22,6 +22,10 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "VictorBush.Ego.NefsLib.Test
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "VictorBush.Ego.NefsEdit.Tests", "VictorBush.Ego.NefsEdit.Tests\VictorBush.Ego.NefsEdit.Tests.csproj", "{40723AAF-DC4B-4DFE-BE01-90C562C7E298}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tools", "tools", "{75EF1746-E98C-452D-AA41-6B3E49CE5172}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "nefstool", "tools\nefstool\nefstool.csproj", "{2EDE39E4-2DEC-4FF2-8621-64F182C2FDED}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -44,11 +48,18 @@ Global
 		{40723AAF-DC4B-4DFE-BE01-90C562C7E298}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{40723AAF-DC4B-4DFE-BE01-90C562C7E298}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{40723AAF-DC4B-4DFE-BE01-90C562C7E298}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2EDE39E4-2DEC-4FF2-8621-64F182C2FDED}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2EDE39E4-2DEC-4FF2-8621-64F182C2FDED}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2EDE39E4-2DEC-4FF2-8621-64F182C2FDED}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2EDE39E4-2DEC-4FF2-8621-64F182C2FDED}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {96BAF5C3-ACAE-4EA2-A81B-9786B47F2895}
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{2EDE39E4-2DEC-4FF2-8621-64F182C2FDED} = {75EF1746-E98C-452D-AA41-6B3E49CE5172}
 	EndGlobalSection
 EndGlobal
