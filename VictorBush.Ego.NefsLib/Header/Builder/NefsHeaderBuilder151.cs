@@ -112,7 +112,8 @@ internal class NefsHeaderBuilder151 : NefsHeaderBuilder<NefsHeader151>
 			var entry = new NefsTocEntry150
 			{
 				Start = Convert.ToUInt64(item.DataSource.Offset),
-				Flags = GetItemFlags(item),
+				Flags = GetItemFlags(item,
+					!item.IsDuplicate && items.GetItemSiblingId(item.Id) == item.Id),
 				Volume = item.Attributes.Volume,
 				SharedInfo = GetSharedInfo(item),
 				FirstBlock = GetFirstBlockLocal(item),
@@ -159,12 +160,17 @@ internal class NefsHeaderBuilder151 : NefsHeaderBuilder<NefsHeader151>
 
 	internal static ushort GetItemFlags(NefsItem item)
 	{
+		return GetItemFlags(item, item.Attributes.IsLastSibling);
+	}
+
+	internal static ushort GetItemFlags(NefsItem item, bool isLastSibling)
+	{
 		var flags = NefsTocEntryFlags150.None;
 		flags |= item.Attributes.IsTransformed ? NefsTocEntryFlags150.Transformed : 0;
 		flags |= item.Attributes.IsDirectory ? NefsTocEntryFlags150.Directory : 0;
 		flags |= item.Attributes.IsDuplicated ? NefsTocEntryFlags150.Duplicated : 0;
 		flags |= item.Attributes.IsCacheable ? NefsTocEntryFlags150.Cacheable : 0;
-		flags |= item.Attributes.IsLastSibling ? NefsTocEntryFlags150.LastSibling : 0;
+		flags |= isLastSibling ? NefsTocEntryFlags150.LastSibling : 0;
 		flags |= item.Attributes.IsPatched ? NefsTocEntryFlags150.Patched : 0;
 		return (ushort)flags;
 	}
