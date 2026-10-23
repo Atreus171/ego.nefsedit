@@ -195,6 +195,110 @@ public class NefsWriterTests
 		}
 	}
 
+	[Fact]
+	public async Task WriteArchiveAsync_AddedChild_RecomputesLastSiblingFlags()
+	{
+		// Arrange
+		const string destDir = @"C:\dest";
+		const string destFilePath = @"C:\dest\test.nfs";
+		const string srcVol0 = @"C:\src\test.nfs";
+		const string newFilePath = @"C:\src\new.txt";
+
+		var vol0Data = new byte[0x1000];
+		RandomNumberGenerator.Fill(vol0Data);
+		var newData = "new child"u8.ToArray();
+		this.fileSystem.AddFile(srcVol0, new MockFileData(vol0Data));
+		this.fileSystem.AddFile(newFilePath, new MockFileData(newData));
+		this.fileSystem.AddDirectory(destDir);
+
+		var vol0Source = new NefsVolumeSource(srcVol0, 0, 0);
+		var items = new NefsItemList([vol0Source]);
+		var blockSize = 0x100u;
+		var transform = new NefsDataTransform(blockSize);
+
+		var root = new NefsItem(
+			new NefsItemId(0),
+			"root",
+			new NefsItemId(0),
+			new NefsEmptyDataSource(),
+			null,
+			new NefsItemAttributes(isDirectory: true) { IsLastSibling = true });
+		items.Add(root);
+
+		var oldChunks = NefsDataChunk.CreateChunkList(new List<uint> { 50 }, transform);
+		var oldSize = new NefsItemSize(50, oldChunks);
+		var oldSource = new NefsVolumeDataSource(vol0Source, 0x200, oldSize);
+		var oldItem = new NefsItem(
+			new NefsItemId(1),
+			"old.txt",
+			new NefsItemId(0),
+			oldSource,
+			transform,
+			new NefsItemAttributes { IsTransformed = true, IsLastSibling = true });
+		items.Add(oldItem);
+
+		var newItem = new NefsItem(
+			new NefsItemId(2),
+			new NefsItemId(2),
+			"new.txt",
+			new NefsItemId(0),
+			new NefsFileDataSource(newFilePath, 0, new NefsItemSize((uint)newData.Length), false),
+			new NefsDataTransform(blockSize, true),
+			new NefsItemAttributes { IsTransformed = true },
+			NefsItemState.Added);
+		items.Add(newItem);
+
+		var nameTable = new NefsHeaderNameTable(["test.nfs"]);
+		var volumeInfoTable = new NefsHeaderVolumeInfoTable150(
+		[
+			new NefsTocVolumeInfo150
+			{
+				Size = 0,
+				NameOffset = nameTable.OffsetsByFileName["test.nfs"],
+				DataOffset = 0
+			}
+		]);
+		var intro = new NefsTocHeader151
+		{
+			Version = (uint)NefsVersion.Version151,
+			BlockSize = blockSize,
+			SplitSize = 0,
+		};
+		var donorHeader = new NefsHeader151(
+			new NefsWriterSettings(false, false, true),
+			intro,
+			new NefsHeaderEntryTable150([]),
+			new NefsHeaderSharedEntryInfoTable150([]),
+			nameTable,
+			new NefsHeaderBlockTable151([]),
+			volumeInfoTable);
+		var archive = new NefsArchive(donorHeader, items);
+
+		// Act
+		await CreateWriter().WriteArchiveAsync(destFilePath, archive, new NefsProgress());
+		var reader = new NefsReader(this.fileSystem);
+		var readArchive = await reader.ReadArchiveAsync(destFilePath, new NefsProgress());
+
+		// Assert
+		var readOld = readArchive.Items.EnumerateById().First(x => x.FileName == "old.txt");
+		var readNew = readArchive.Items.EnumerateById().First(x => x.FileName == "new.txt");
+		Assert.False(readOld.Attributes.IsLastSibling);
+		Assert.True(readNew.Attributes.IsLastSibling);
+		Assert.Equal((uint)newData.Length, readNew.ExtractedSize);
+
+		using var input = readNew.DataSource.OpenRead(this.fileSystem);
+		using var output = new MemoryStream();
+		var transformer = new NefsTransformer(this.fileSystem);
+		await transformer.DetransformAsync(
+			input,
+			readNew.DataSource.Offset,
+			output,
+			0,
+			readNew.ExtractedSize,
+			readNew.DataSource.Size.Chunks,
+			new NefsProgress());
+		Assert.Equal(newData, output.ToArray());
+	}
 	private NefsWriter CreateWriter()
 	{
 		return new NefsWriter(TempDir, this.fileSystem, this.transformer);

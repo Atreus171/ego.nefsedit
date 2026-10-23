@@ -14,16 +14,7 @@ internal static class Program
 	{
 		if (args.Length == 0)
 		{
-			Console.WriteLine("usage:");
-			Console.WriteLine("  nefstool info <archive.nfs>");
-			Console.WriteLine("  nefstool save <archive.nfs> <out.nfs>");
-			Console.WriteLine("  nefstool cmp <a.nfs> <b.nfs>");
-			Console.WriteLine("  nefstool list <archive.nfs> [name-filter]");
-			Console.WriteLine("  nefstool grep <archive.nfs> <text>");
-			Console.WriteLine("  nefstool grepci <archive.nfs> <text>");
-			Console.WriteLine("  nefstool extract <archive.nfs> <name> <out-file>");
-			Console.WriteLine("  nefstool replace <archive.nfs> <out.nfs> <name> <file> [<name> <file> ...]");
-			Console.WriteLine("  nefstool add <archive.nfs> <out.nfs> <name> <file> [<name> <file> ...]");
+			PrintUsage();
 			return 2;
 		}
 
@@ -33,9 +24,10 @@ internal static class Program
 			"save" when args.Length >= 3 => await Save(args[1], args[2]),
 			"cmp" when args.Length >= 3 => await Compare(args[1], args[2]),
 			"list" when args.Length >= 2 => await List(args[1], args.Length >= 3 ? args[2] : null),
-			"grep" when args.Length >= 3 => await Grep(args[1], args[2]),
-			"grepci" when args.Length >= 3 => await GrepCi(args[1], args[2]),
+			"grep" when args.Length >= 3 => await Search(args[1], args[2], false, args.Length >= 4 ? args[3] : null),
+			"grepci" when args.Length >= 3 => await Search(args[1], args[2], true, args.Length >= 4 ? args[3] : null),
 			"extract" when args.Length >= 4 => await Extract(args[1], args[2], args[3]),
+			"extract-all" when args.Length >= 3 => await ExtractAll(args[1], args[2], args.Length >= 4 ? args[3] : null),
 			"replace" when args.Length >= 5 && args.Length % 2 == 1 => await Replace(args[1], args[2], args[3..]),
 			"add" when args.Length >= 5 && (args.Length - 3) % 2 == 0 => await Add(args[1], args[2], args[3..]),
 			_ => PrintUsageAndFail(),
@@ -52,8 +44,9 @@ internal static class Program
 				continue;
 			}
 
+			var path = archive.Items.GetItemFilePath(item.Id).Replace('\\', '/');
 			if (!string.IsNullOrEmpty(filter) &&
-			    !item.FileName.Contains(filter, StringComparison.OrdinalIgnoreCase))
+			    !path.Contains(filter, StringComparison.OrdinalIgnoreCase))
 			{
 				continue;
 			}
@@ -64,7 +57,7 @@ internal static class Program
 				: $"{(t.IsZlibCompressed ? "zlib " : "")}{(t.IsAesEncrypted ? "aes " : "")}{(t.IsLzssCompressed ? "lzss" : "")}".Trim();
 			Console.WriteLine(
 				$"id={item.Id.Value,5} vol={item.Attributes.Volume} ext={item.ExtractedSize,10} comp={item.CompressedSize,10} " +
-				$"chunks={item.DataSource.Size.Chunks.Count,4} xform={transform,-9} '{item.FileName}'");
+				$"chunks={item.DataSource.Size.Chunks.Count,4} xform={transform,-9} '{path}'");
 		}
 
 		return 0;
@@ -77,7 +70,7 @@ internal static class Program
 
 		for (var i = 0; i < nameFilePairs.Length; i += 2)
 		{
-			var name = nameFilePairs[i];
+			var selector = nameFilePairs[i];
 			var replacementPath = Path.GetFullPath(nameFilePairs[i + 1]);
 			if (!File.Exists(replacementPath))
 			{
@@ -85,13 +78,10 @@ internal static class Program
 				return 1;
 			}
 
-			var matches = archive.Items.EnumerateById()
-				.Where(x => x.Type == NefsItemType.File &&
-				            string.Equals(x.FileName, name, StringComparison.OrdinalIgnoreCase))
-				.ToList();
+			var matches = ResolveItems(archive, selector);
 			if (matches.Count != 1)
 			{
-				Console.WriteLine($"expected exactly one item named '{name}', found {matches.Count}");
+				PrintMatchError("replace", selector, matches);
 				return 1;
 			}
 
@@ -105,7 +95,7 @@ internal static class Program
 			}
 
 			Console.WriteLine(
-				$"REPLACE id={item.Id.Value} '{item.FileName}' vol={item.Attributes.Volume} " +
+				$"REPLACE id={item.Id.Value} '{archive.Items.GetItemFilePath(item.Id)}' vol={item.Attributes.Volume} " +
 				$"size={oldSize} -> {newSize} duplicates={archive.Items.GetItemDuplicates(item.Id).Count}");
 		}
 
@@ -122,14 +112,12 @@ internal static class Program
 		var transformer = new NefsTransformer(fs);
 		foreach (var i in Enumerable.Range(0, nameFilePairs.Length / 2))
 		{
-			var name = nameFilePairs[i * 2];
+			var selector = nameFilePairs[i * 2];
 			var replacementPath = Path.GetFullPath(nameFilePairs[i * 2 + 1]);
-			var item = newArchive.Items.EnumerateById()
-				.FirstOrDefault(x => x.Type == NefsItemType.File &&
-				                     string.Equals(x.FileName, name, StringComparison.OrdinalIgnoreCase));
+			var item = ResolveItems(newArchive, selector).SingleOrDefault();
 			if (item is null)
 			{
-				Console.WriteLine($"VERIFY '{name}': MISSING");
+				Console.WriteLine($"VERIFY '{selector}': MISSING");
 				continue;
 			}
 
@@ -137,8 +125,8 @@ internal static class Program
 			var actual = await HashItemAsync(fs, transformer, item);
 			var state = expected.AsSpan().SequenceEqual(actual) ? "OK" : "MISMATCH";
 			Console.WriteLine(
-				$"VERIFY '{name}': {state} id={item.Id.Value} vol={item.Attributes.Volume} ext={item.ExtractedSize} " +
-				$"chunks={item.DataSource.Size.Chunks.Count}");
+				$"VERIFY '{newArchive.Items.GetItemFilePath(item.Id)}': {state} id={item.Id.Value} " +
+				$"vol={item.Attributes.Volume} ext={item.ExtractedSize} chunks={item.DataSource.Size.Chunks.Count}");
 		}
 
 		return 0;
@@ -160,22 +148,43 @@ internal static class Program
 				return 1;
 			}
 
-			if (archive.Items.EnumerateById().Any(x =>
-				    x.Type == NefsItemType.File &&
-				    string.Equals(x.FileName, name, StringComparison.OrdinalIgnoreCase)))
+			var normalized = NormalizeArchivePath(name);
+			var segments = normalized.Split('/');
+			if (segments.Length == 0 || segments.Any(x => x.Length == 0 || x == "." || x == ".."))
 			{
-				Console.WriteLine($"item already exists: '{name}'");
+				Console.WriteLine($"invalid archive path: '{name}'");
+				return 1;
+			}
+
+			var fileName = segments[^1];
+			var id = new NefsItemId(nextId++);
+			var directoryPath = segments.Length > 1 ? string.Join('/', segments[..^1]) : null;
+			var parent = directoryPath is null ? null : FindDirectory(archive, directoryPath);
+			if (directoryPath is not null && parent is null)
+			{
+				Console.WriteLine($"parent directory not found: '{directoryPath}'");
+				return 1;
+			}
+
+			var directoryId = parent?.Id ?? id;
+			var duplicate = archive.Items.EnumerateById().Any(x =>
+				x.Type == NefsItemType.File &&
+				string.Equals(x.FileName, fileName, StringComparison.OrdinalIgnoreCase) &&
+				(directoryPath is null ? x.DirectoryId == x.Id : x.DirectoryId == directoryId));
+			if (duplicate)
+			{
+				Console.WriteLine($"item already exists: '{normalized}'");
 				return 1;
 			}
 
 			var size = (uint)new FileInfo(filePath).Length;
-			var id = new NefsItemId(nextId++);
 			var dataSource = new NefsFileDataSource(filePath, 0, new NefsItemSize(size), false);
 			var transform = new NefsDataTransform(0x20000, true);
 			var attributes = new NefsItemAttributes { Volume = 0, IsTransformed = true };
-			var item = new NefsItem(id, id, name, id, dataSource, transform, attributes, NefsItemState.Added);
+			var item = new NefsItem(id, id, fileName, directoryId, dataSource, transform, attributes,
+				NefsItemState.Added);
 			archive.Items.Add(item);
-			Console.WriteLine($"ADD id={id.Value} '{name}' size={size}");
+			Console.WriteLine($"ADD id={id.Value} '{normalized}' size={size}");
 		}
 
 		var outDir = Path.GetDirectoryName(Path.GetFullPath(outPath))!;
@@ -191,11 +200,12 @@ internal static class Program
 		var transformer = new NefsTransformer(fs);
 		for (var i = 0; i < nameFilePairs.Length; i += 2)
 		{
-			var name = nameFilePairs[i];
+			var name = NormalizeArchivePath(nameFilePairs[i]);
 			var filePath = Path.GetFullPath(nameFilePairs[i + 1]);
 			var item = newArchive.Items.EnumerateById()
 				.FirstOrDefault(x => x.Type == NefsItemType.File &&
-				                     string.Equals(x.FileName, name, StringComparison.OrdinalIgnoreCase));
+				                     string.Equals(NormalizeArchivePath(newArchive.Items.GetItemFilePath(x.Id)),
+					                     name, StringComparison.OrdinalIgnoreCase));
 			if (item is null)
 			{
 				Console.WriteLine($"VERIFY '{name}': MISSING");
@@ -213,23 +223,67 @@ internal static class Program
 		return 0;
 	}
 
-	private static async Task<int> Extract(string archivePath, string name, string outPath)
+	private static async Task<int> Extract(string archivePath, string selector, string outPath)
 	{
 		var archive = await LoadArchive(archivePath);
 		var fs = new FileSystem();
 		var transformer = new NefsTransformer(fs);
-		var item = archive.Items.EnumerateById()
-			.FirstOrDefault(x => x.Type == NefsItemType.File &&
-			                     string.Equals(x.FileName, name, StringComparison.OrdinalIgnoreCase));
-		if (item is null)
+		var matches = ResolveItems(archive, selector);
+		if (matches.Count != 1)
 		{
-			Console.WriteLine($"item not found: {name}");
+			PrintMatchError("extract", selector, matches);
 			return 1;
 		}
 
+		var item = matches[0];
+		await ExtractItemAsync(fs, transformer, item, outPath);
+		Console.WriteLine(
+			$"EXTRACT '{archive.Items.GetItemFilePath(item.Id)}' -> {outPath} size={item.ExtractedSize}");
+		return 0;
+	}
+
+	private static async Task<int> ExtractAll(string archivePath, string outDir, string? filter)
+	{
+		var archive = await LoadArchive(archivePath);
+		var fs = new FileSystem();
+		var transformer = new NefsTransformer(fs);
+		var root = Path.GetFullPath(outDir);
+		Directory.CreateDirectory(root);
+
+		var files = archive.Items.EnumerateById()
+			.Where(x => x.Type == NefsItemType.File)
+			.Select(x => (Item: x, Path: NormalizeArchivePath(archive.Items.GetItemFilePath(x.Id))))
+			.Where(x => filter is null || x.Path.Contains(filter, StringComparison.OrdinalIgnoreCase))
+			.ToList();
+		var duplicatePaths = files.GroupBy(x => x.Path, StringComparer.OrdinalIgnoreCase)
+			.Where(g => g.Count() > 1)
+			.Select(g => g.Key)
+			.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+		var count = 0;
+		foreach (var (item, path) in files)
+		{
+			var outPath = SafeOutputPath(root, path);
+			if (duplicatePaths.Contains(path))
+			{
+				var extension = Path.GetExtension(outPath);
+				outPath = outPath[..^extension.Length] + $"~dup{item.Id.Value}" + extension;
+			}
+
+			await ExtractItemAsync(fs, transformer, item, outPath);
+			count++;
+		}
+
+		Console.WriteLine($"EXTRACT-ALL {count} file(s) -> {root}");
+		return 0;
+	}
+
+	private static async Task ExtractItemAsync(IFileSystem fs, NefsTransformer transformer, NefsItem item,
+		string outPath)
+	{
 		Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outPath))!);
-		using var input = item.DataSource.OpenRead(fs);
-		using var output = File.Create(outPath);
+		await using var input = item.DataSource.OpenRead(fs);
+		await using var output = File.Create(outPath);
 		await transformer.DetransformAsync(
 			input,
 			item.DataSource.Offset,
@@ -238,88 +292,44 @@ internal static class Program
 			item.ExtractedSize,
 			item.DataSource.Size.Chunks,
 			new NefsProgress());
-		Console.WriteLine($"EXTRACT '{item.FileName}' -> {outPath} size={item.ExtractedSize}");
-		return 0;
 	}
 
-	private static async Task<int> Grep(string archivePath, string text)
+	private static async Task<int> Search(string archivePath, string text, bool ignoreCase, string? maxMbText)
 	{
-		var archive = await LoadArchive(archivePath);
-		var fs = new FileSystem();
-		var transformer = new NefsTransformer(fs);
-		var needles = new[]
+		if (string.IsNullOrEmpty(text))
 		{
-			Encoding.UTF8.GetBytes(text),
-			Encoding.Unicode.GetBytes(text),
-		};
-		var hits = 0;
-
-		foreach (var item in archive.Items.EnumerateById())
-		{
-			if (item.Type != NefsItemType.File || item.ExtractedSize > 32 * 1024 * 1024)
-			{
-				continue;
-			}
-
-			try
-			{
-				using var input = item.DataSource.OpenRead(fs);
-				using var output = new MemoryStream();
-				await transformer.DetransformAsync(
-					input,
-					item.DataSource.Offset,
-					output,
-					0,
-					item.ExtractedSize,
-					item.DataSource.Size.Chunks,
-					new NefsProgress());
-				var data = output.ToArray();
-				for (var n = 0; n < needles.Length; n++)
-				{
-					var needle = needles[n];
-					var offset = 0;
-					while (offset <= data.Length - needle.Length)
-					{
-						var i = data.AsSpan(offset).IndexOf(needle);
-						if (i < 0)
-						{
-							break;
-						}
-
-						i += offset;
-						var start = Math.Max(0, i - 80);
-						var end = Math.Min(data.Length, i + needle.Length + 120);
-						var context = Encoding.UTF8.GetString(data, start, end - start)
-							.Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' ');
-						Console.WriteLine($"HIT id={item.Id.Value} '{item.FileName}' enc={(n == 0 ? "utf8" : "utf16")} at={i}");
-						Console.WriteLine($"  {context}");
-						hits++;
-						offset = i + needle.Length;
-					}
-				}
-			}
-			catch (Exception ex)
-			{
-				Console.WriteLine($"SKIP id={item.Id.Value} '{item.FileName}': {ex.GetType().Name}");
-			}
+			Console.WriteLine("search text cannot be empty");
+			return 1;
 		}
 
-		Console.WriteLine($"hits={hits}");
-		return 0;
-	}
+		var maxBytes = 256L * 1024 * 1024;
+		if (maxMbText is not null)
+		{
+			if (!int.TryParse(maxMbText, out var maxMb) || maxMb < 0)
+			{
+				Console.WriteLine($"invalid max MB value: '{maxMbText}'");
+				return 1;
+			}
 
-	private static async Task<int> GrepCi(string archivePath, string text)
-	{
+			maxBytes = maxMb == 0 ? long.MaxValue : maxMb * 1024L * 1024L;
+		}
+
 		var archive = await LoadArchive(archivePath);
 		var fs = new FileSystem();
 		var transformer = new NefsTransformer(fs);
-		var needle = text.ToLowerInvariant();
 		var hits = 0;
+		var skipped = 0;
 
 		foreach (var item in archive.Items.EnumerateById())
 		{
-			if (item.Type != NefsItemType.File || item.ExtractedSize > 64 * 1024 * 1024)
+			if (item.Type != NefsItemType.File)
 			{
+				continue;
+			}
+
+			if (item.ExtractedSize > maxBytes)
+			{
+				skipped++;
 				continue;
 			}
 
@@ -336,34 +346,40 @@ internal static class Program
 					item.DataSource.Size.Chunks,
 					new NefsProgress());
 				var data = output.ToArray();
+				var itemPath = NormalizeArchivePath(archive.Items.GetItemFilePath(item.Id));
 
-				void Scan(string decoded, int stride, string encoding)
+				void Scan(Encoding encoding, int stride, string encodingName)
 				{
-					var haystack = decoded.ToLowerInvariant();
+					var decoded = encoding.GetString(data);
 					var offset = 0;
-					while (offset <= haystack.Length - needle.Length)
+					while (offset <= decoded.Length - text.Length)
 					{
-						var i = haystack.IndexOf(needle, offset, StringComparison.Ordinal);
+						var i = decoded.IndexOf(text, offset,
+							ignoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 						if (i < 0)
 						{
 							break;
 						}
 
-						var byteOffset = i * stride;
+						var byteOffset = stride == 1 && encoding.CodePage == Encoding.UTF8.CodePage
+							? Encoding.UTF8.GetByteCount(decoded.AsSpan(0, i))
+							: i * stride;
 						var start = Math.Max(0, byteOffset - 80);
-						var end = Math.Min(data.Length, byteOffset + needle.Length * stride + 120);
+						var end = Math.Min(data.Length, byteOffset + text.Length * stride + 120);
 						var context = Encoding.UTF8.GetString(data, start, end - start)
 							.Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' ');
-						Console.WriteLine($"HIT id={item.Id.Value} '{item.FileName}' enc={encoding} at={byteOffset}");
+						Console.WriteLine(
+							$"HIT id={item.Id.Value} '{itemPath}' enc={encodingName} at={byteOffset}");
 						Console.WriteLine($"  {context}");
 						hits++;
-						offset = i + needle.Length;
+						offset = i + text.Length;
 					}
 				}
 
-				Scan(Encoding.Latin1.GetString(data), 1, "latin1");
-				Scan(Encoding.Unicode.GetString(data, 0, data.Length & ~1), 2, "utf16le");
-				Scan(Encoding.BigEndianUnicode.GetString(data, 0, data.Length & ~1), 2, "utf16be");
+				Scan(Encoding.Latin1, 1, "latin1");
+				Scan(Encoding.UTF8, 1, "utf8");
+				Scan(Encoding.Unicode, 2, "utf16le");
+				Scan(Encoding.BigEndianUnicode, 2, "utf16be");
 			}
 			catch (Exception ex)
 			{
@@ -371,10 +387,10 @@ internal static class Program
 			}
 		}
 
-		Console.WriteLine($"hits={hits}");
+		Console.WriteLine($"hits={hits} skipped={skipped}" +
+			(maxBytes == long.MaxValue ? "" : $" max={maxBytes / (1024 * 1024)}MB"));
 		return 0;
 	}
-
 	private static async Task<int> Info(string archivePath)
 	{
 		var archive = await LoadArchive(archivePath);
@@ -566,10 +582,101 @@ internal static class Program
 		Console.WriteLine($"  block table entries: {blockCount}");
 	}
 
+	private static void PrintUsage()
+	{
+		Console.WriteLine("usage:");
+		Console.WriteLine("  nefstool info <archive.nfs>");
+		Console.WriteLine("  nefstool save <archive.nfs> <out.nfs>");
+		Console.WriteLine("  nefstool cmp <a.nfs> <b.nfs>");
+		Console.WriteLine("  nefstool list <archive.nfs> [path-filter]");
+		Console.WriteLine("  nefstool grep <archive.nfs> <text> [max-mb]");
+		Console.WriteLine("  nefstool grepci <archive.nfs> <text> [max-mb]");
+		Console.WriteLine("  nefstool extract <archive.nfs> <name|#id> <out-file>");
+		Console.WriteLine("  nefstool extract-all <archive.nfs> <out-dir> [path-filter]");
+		Console.WriteLine("  nefstool replace <archive.nfs> <out.nfs> <name|#id> <file> [...]");
+		Console.WriteLine("  nefstool add <archive.nfs> <out.nfs> <path> <file> [...]");
+		Console.WriteLine();
+		Console.WriteLine("grep max-mb defaults to 256; use 0 for no limit.");
+		Console.WriteLine("add paths may target existing directories, e.g. 'language/file.lng'.");
+	}
+
 	private static int PrintUsageAndFail()
 	{
 		Console.WriteLine("bad arguments");
-		Console.WriteLine("usage: nefstool <info|save|cmp|list|replace> ...");
+		PrintUsage();
 		return 2;
+	}
+
+	private static string NormalizeArchivePath(string path)
+	{
+		return path.Replace('\\', '/').Trim('/');
+	}
+
+	private static NefsItem? FindDirectory(NefsArchive archive, string path)
+	{
+		var normalized = NormalizeArchivePath(path);
+		foreach (var item in archive.Items.EnumerateById().Where(x => x.Type == NefsItemType.Directory))
+		{
+			var itemPath = NormalizeArchivePath(archive.Items.GetItemFilePath(item.Id));
+			if (string.Equals(itemPath, normalized, StringComparison.OrdinalIgnoreCase))
+			{
+				return item;
+			}
+		}
+
+		return null;
+	}
+
+	private static List<NefsItem> ResolveItems(NefsArchive archive, string selector)
+	{
+		if (selector.StartsWith("#", StringComparison.Ordinal))
+		{
+			if (!uint.TryParse(selector[1..], out var id))
+			{
+				return [];
+			}
+
+			var item = archive.Items.EnumerateById()
+				.FirstOrDefault(x => x.Type == NefsItemType.File && x.Id.Value == id);
+			return item is null ? [] : [item];
+		}
+
+		var normalized = NormalizeArchivePath(selector);
+		return archive.Items.EnumerateById()
+			.Where(x => x.Type == NefsItemType.File)
+			.Where(x => string.Equals(NormalizeArchivePath(archive.Items.GetItemFilePath(x.Id)), normalized,
+				            StringComparison.OrdinalIgnoreCase) ||
+			            string.Equals(x.FileName, selector, StringComparison.OrdinalIgnoreCase))
+			.ToList();
+	}
+
+	private static void PrintMatchError(string command, string selector, IReadOnlyList<NefsItem> matches)
+	{
+		if (matches.Count == 0)
+		{
+			Console.WriteLine($"{command}: item not found: '{selector}'");
+			return;
+		}
+
+		Console.WriteLine($"{command}: selector '{selector}' matched {matches.Count} items; use #id:");
+		foreach (var item in matches)
+		{
+			Console.WriteLine($"  #{item.Id.Value} '{item.FileName}'");
+		}
+	}
+
+	private static string SafeOutputPath(string root, string relativePath)
+	{
+		var normalized = relativePath
+			.Replace('/', Path.DirectorySeparatorChar)
+			.Replace('\\', Path.DirectorySeparatorChar);
+		var fullPath = Path.GetFullPath(Path.Combine(root, normalized));
+		var rootPath = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+		if (!fullPath.StartsWith(rootPath, StringComparison.OrdinalIgnoreCase))
+		{
+			throw new InvalidOperationException($"refusing to write outside output directory: '{relativePath}'");
+		}
+
+		return fullPath;
 	}
 }
