@@ -16,7 +16,9 @@ There are two components to this project.
 ## Documentation
 - [NefsLib](VictorBush.Ego.NefsLib/README.md) - library usage and archive format notes.
 - [NefsEdit](VictorBush.Ego.NefsEdit/README.md) - application features and limitations.
+- [NeFsTool](NeFsTool/README.md) - command-line utility for listing, extracting and patching items.
 - [Changelog](CHANGES.md) - release history and recent changes.
+- [Ego Engine .lng files](docs/lng-format.md) - localisation container, chunk packing and per-block checksums.
 
 ## Acknowledgements
 [@Gigi1237]( https://github.com/Gigi1237 ) - encryption/reversing contributions

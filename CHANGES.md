@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Added `NeFsTool`, a command-line utility for listing, extracting, diffing and patching items, with block/transform/checksum diagnostics.
+- Documented the Ego Engine `.lng` container and how the 360 executable validates compressed blocks (raw deflate, exact slot size, CRC16 over the compressed bytes).
 - Added writing multi-volume NeFS 1.5.1 archives. The primary volume is rebuilt; secondary volumes are copied unchanged and item data sources are rebound to the destination paths.
 - Enabled saving archives with two or more volumes in NefsEdit.
 - Added recalculation of the 1.5.1 header checksum for XOR-encoded (PS3) headers.
