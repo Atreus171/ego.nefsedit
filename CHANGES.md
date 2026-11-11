@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Added opening NeFS archives that do not start at offset 0 of the file (concatenated archives and files with a truncated/corrupted beginning, e.g. `x360_000.nfs` from DiRT Showdown). The file is scanned for headers, the user picks one when there is more than one, and every item data offset is shifted by the header offset.
+- Added `NefsScan`, a command line tool to scan a file for NeFS headers and to inspect archives in files that need `--at=<offset>` (`scan`, `info`, `list`, `extract`, `grep`, `grepci`, `cmp`, `replace`, `add`).
 - Added writing multi-volume NeFS 1.5.1 archives. The primary volume is rebuilt; secondary volumes are copied unchanged and item data sources are rebound to the destination paths.
 - Enabled saving archives with two or more volumes in NefsEdit.
 - Added recalculation of the 1.5.1 header checksum for XOR-encoded (PS3) headers.
